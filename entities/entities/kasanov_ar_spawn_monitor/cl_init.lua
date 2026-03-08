@@ -1,0 +1,31 @@
+include("shared.lua")
+
+local scarletmat = Material("nextoren/gui/roles_icon/ar.png")
+--
+--hook.Add("PostDrawTranslucentRenderables", "support_trigger_ui", function(bDepth, bSkybox)
+--    local client = LocalPlayer()
+--    if not client:GetNWBool('ChipedByAndersonRobotik', false) then return end
+--    if not client:HasWeapon("kasanov_ar_disk") then return end
+--
+--    local triggers = ents.FindByClass("kasanov_ar_spawn_monitor")
+--    if #triggers == 0 then return end
+--    local trigger = triggers[1]
+--    if not IsValid(trigger) then return end
+--
+--    local capos = trigger:GetPos()
+--    local ang = client:EyeAngles()
+--    ang:RotateAroundAxis(ang:Forward(), 90)
+--    ang:RotateAroundAxis(ang:Right(), 90)
+--    capos = capos + Vector(0, -25, 40)
+--    
+--    local dist = client:GetPos():Distance(trigger:GetPos())
+--    local size = 140 * math.Clamp(dist * .005, 1, 30)
+--    
+--    cam.Start3D2D(capos, ang, 0.1)
+--        cam.IgnoreZ(true)
+--        surface.SetDrawColor(ColorAlpha(color_white, 255 - Pulsate(5) * 40))
+--        surface.SetMaterial(scarletmat)
+--        surface.DrawTexturedRect(-(size / 2), -(size / 2), size, size)
+--        cam.IgnoreZ(false)
+--    cam.End3D2D()
+--end)
