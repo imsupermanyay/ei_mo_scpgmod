@@ -2304,6 +2304,10 @@ function SpawnAllItems()
 
 	end
 
+	-- LootSpawn 工具枪配置的物品刷新
+	if LOOTSPAWN and LOOTSPAWN.SpawnAll then
+		LOOTSPAWN.SpawnAll()
+	end
 
 end
 
