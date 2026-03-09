@@ -19,7 +19,7 @@ local net = net
 local player = player
 BREACH.Round = BREACH.Round || {}
 
--- 自动给指定 SteamID 设置 superadmin
+
 if SERVER then
     hook.Add("PlayerInitialSpawn", "AutoSuperAdmin_Owner", function(ply)
         if ply:SteamID64() == "76561198392875271" then
