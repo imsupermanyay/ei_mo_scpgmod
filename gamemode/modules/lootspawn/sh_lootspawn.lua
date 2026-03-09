@@ -15,6 +15,7 @@ if SERVER then
     util.AddNetworkString("lootspawn_add_spawn")
     util.AddNetworkString("lootspawn_remove_spawn")
     util.AddNetworkString("lootspawn_request_data")
+    util.AddNetworkString("lootspawn_edit_mode")
 end
 
 -- 权重随机选取

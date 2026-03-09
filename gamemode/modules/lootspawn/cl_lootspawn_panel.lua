@@ -1,10 +1,12 @@
 --[[
     Loot Spawn System - Client Panel
-    战利品组管理界面 + 点位列表
+    战利品组管理界面 + 点位列表 + 编辑模式控制
 ]]
 
 LOOTSPAWN.ClientGroups = LOOTSPAWN.ClientGroups or {}
 LOOTSPAWN.ClientSpawns = LOOTSPAWN.ClientSpawns or {}
+LOOTSPAWN.EditMode = false
+LOOTSPAWN.EditGroup = "" -- 当前编辑模式选中的组
 
 -- ==================== 接收数据 ====================
 
@@ -20,11 +22,11 @@ net.Receive("lootspawn_sync_spawns", function()
     LOOTSPAWN.ClientSpawns = util.JSONToTable(raw) or {}
 end)
 
--- ==================== 主面板 ====================
-
 net.Receive("lootspawn_open_panel", function()
     LOOTSPAWN.OpenMainPanel()
 end)
+
+-- ==================== 主面板 ====================
 
 function LOOTSPAWN.OpenMainPanel()
     if IsValid(LOOTSPAWN.MainFrame) then LOOTSPAWN.MainFrame:Remove() end
@@ -41,13 +43,11 @@ function LOOTSPAWN.OpenMainPanel()
     sheet:Dock(FILL)
     sheet:DockMargin(4, 4, 4, 4)
 
-    -- Tab 1: 战利品组管理
     local groupPanel = LOOTSPAWN.CreateGroupPanel(sheet)
     sheet:AddSheet("战利品组管理", groupPanel, "icon16/box.png")
 
-    -- Tab 2: 点位列表
     local spawnPanel = LOOTSPAWN.CreateSpawnPanel(sheet)
-    sheet:AddSheet("点位列表 (" .. game.GetMap() .. ")", spawnPanel, "icon16/world.png")
+    sheet:AddSheet("点位管理 (" .. game.GetMap() .. ")", spawnPanel, "icon16/world.png")
 end
 
 -- ==================== 战利品组面板 ====================
@@ -101,7 +101,6 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     editLabel:SetText("选择一个组进行编辑")
     editLabel:SetFont("DermaDefaultBold")
 
-    -- 编辑表单容器
     local editScroll = vgui.Create("DScrollPanel", rightPanel)
     editScroll:Dock(FILL)
     editScroll:DockMargin(4, 4, 4, 4)
@@ -134,14 +133,13 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     txtName:DockMargin(4, 2, 4, 4)
     txtName:SetTall(24)
 
-    -- 物品列表标题
+    -- 物品列表
     local lblItems = vgui.Create("DLabel", editContainer)
     lblItems:Dock(TOP)
     lblItems:DockMargin(4, 8, 4, 0)
     lblItems:SetText("物品列表 (实体classname + 权重)")
     lblItems:SetFont("DermaDefaultBold")
 
-    -- 物品列表
     local itemListView = vgui.Create("DListView", editContainer)
     itemListView:Dock(TOP)
     itemListView:DockMargin(4, 4, 4, 4)
@@ -175,14 +173,13 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     btnAddItem:SetWide(60)
     btnAddItem:SetText("添加")
 
-    -- 删除物品按钮
     local btnRemoveItem = vgui.Create("DButton", editContainer)
     btnRemoveItem:Dock(TOP)
     btnRemoveItem:DockMargin(4, 0, 4, 4)
     btnRemoveItem:SetTall(24)
     btnRemoveItem:SetText("删除选中物品")
 
-    -- 保存 / 删除组 按钮
+    -- 保存 / 删除
     local btnBar = vgui.Create("DPanel", editContainer)
     btnBar:Dock(TOP)
     btnBar:DockMargin(4, 8, 4, 4)
@@ -235,15 +232,13 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     end
 
     groupList.OnRowSelected = function(_, _, row)
-        local classname = row:GetColumnText(1)
-        LoadGroupToEditor(classname)
+        LoadGroupToEditor(row:GetColumnText(1))
     end
 
     btnNew.DoClick = function()
         isNewGroup = true
         editContainer:SetVisible(true)
         editLabel:SetText("新建战利品组")
-
         txtClassname:SetText("")
         txtClassname:SetEnabled(true)
         txtName:SetText("")
@@ -255,7 +250,6 @@ function LOOTSPAWN.CreateGroupPanel(parent)
         local cls = txtItemClass:GetText()
         local w = tonumber(txtItemWeight:GetText()) or 1
         if cls == "" then return end
-
         table.insert(currentItems, { class = cls, weight = w })
         itemListView:AddLine(cls, w)
         txtItemClass:SetText("")
@@ -263,12 +257,10 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     end
 
     btnRemoveItem.DoClick = function()
-        local _, row = itemListView:GetSelectedLine()
-        if not row then return end
-        local idx = row:GetID()
-        table.remove(currentItems, idx)
-        itemListView:RemoveLine(row:GetID())
-        -- 刷新列表
+        local lineId = groupList:GetSelectedLine()
+        local selLine = itemListView:GetSelectedLine()
+        if not selLine then return end
+        table.remove(currentItems, selLine)
         itemListView:Clear()
         for _, item in ipairs(currentItems) do
             itemListView:AddLine(item.class, item.weight)
@@ -278,16 +270,8 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     btnSave.DoClick = function()
         local classname = txtClassname:GetText()
         local name = txtName:GetText()
-
-        if classname == "" then
-            Derma_Message("Classname 不能为空", "错误", "确定")
-            return
-        end
-
-        if #currentItems == 0 then
-            Derma_Message("至少需要一个物品", "错误", "确定")
-            return
-        end
+        if classname == "" then Derma_Message("Classname 不能为空", "错误", "确定") return end
+        if #currentItems == 0 then Derma_Message("至少需要一个物品", "错误", "确定") return end
 
         local data = util.TableToJSON({
             classname = classname,
@@ -300,7 +284,6 @@ function LOOTSPAWN.CreateGroupPanel(parent)
             net.WriteData(data, #data)
         net.SendToServer()
 
-        -- 本地更新
         LOOTSPAWN.ClientGroups[classname] = {
             classname = classname,
             name = name,
@@ -312,13 +295,11 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     btnDelete.DoClick = function()
         local classname = txtClassname:GetText()
         if classname == "" then return end
-
         Derma_Query("确定要删除战利品组 '" .. classname .. "' 吗？", "确认删除",
             "确定", function()
                 net.Start("lootspawn_delete_group")
                     net.WriteString(classname)
                 net.SendToServer()
-
                 LOOTSPAWN.ClientGroups[classname] = nil
                 RefreshGroupList()
                 editContainer:SetVisible(false)
@@ -329,11 +310,10 @@ function LOOTSPAWN.CreateGroupPanel(parent)
     end
 
     RefreshGroupList()
-
     return panel
 end
 
--- ==================== 点位列表面板 ====================
+-- ==================== 点位管理面板（含编辑模式） ====================
 
 function LOOTSPAWN.CreateSpawnPanel(parent)
     local panel = vgui.Create("DPanel", parent)
@@ -342,26 +322,98 @@ function LOOTSPAWN.CreateSpawnPanel(parent)
         draw.RoundedBox(0, 0, 0, w, h, Color(40, 40, 40))
     end
 
-    local infoLabel = vgui.Create("DLabel", panel)
-    infoLabel:Dock(TOP)
-    infoLabel:DockMargin(8, 8, 8, 4)
-    infoLabel:SetText("当前地图: " .. game.GetMap() .. " | 使用工具枪 'LootSpawn Placer' 放置点位")
-    infoLabel:SetFont("DermaDefaultBold")
+    -- 顶部：编辑模式控制
+    local topBar = vgui.Create("DPanel", panel)
+    topBar:Dock(TOP)
+    topBar:SetTall(80)
+    topBar:DockMargin(4, 4, 4, 0)
+    topBar.Paint = function(self, w, h)
+        draw.RoundedBox(4, 0, 0, w, h, Color(50, 50, 50))
+    end
 
+    local lblEditInfo = vgui.Create("DLabel", topBar)
+    lblEditInfo:Dock(TOP)
+    lblEditInfo:DockMargin(8, 6, 8, 0)
+    lblEditInfo:SetText("编辑模式：关闭面板后，左键点地面放置点位，右键点击点位附近删除，按 F4 退出编辑模式")
+    lblEditInfo:SetWrap(true)
+    lblEditInfo:SetAutoStretchVertical(true)
+
+    -- 组选择 + 按钮行
+    local ctrlBar = vgui.Create("DPanel", topBar)
+    ctrlBar:Dock(BOTTOM)
+    ctrlBar:SetTall(32)
+    ctrlBar:DockMargin(4, 4, 4, 4)
+    ctrlBar.Paint = function() end
+
+    local comboGroup = vgui.Create("DComboBox", ctrlBar)
+    comboGroup:Dock(LEFT)
+    comboGroup:SetWide(300)
+    comboGroup:SetValue("选择要绑定的战利品组...")
+
+    local function RefreshCombo()
+        comboGroup:Clear()
+        for classname, data in pairs(LOOTSPAWN.ClientGroups or {}) do
+            comboGroup:AddChoice((data.name or classname) .. " [" .. classname .. "]", classname)
+        end
+    end
+    RefreshCombo()
+
+    comboGroup.OnSelect = function(_, _, _, data)
+        LOOTSPAWN.EditGroup = data
+    end
+
+    local btnToggleEdit = vgui.Create("DButton", ctrlBar)
+    btnToggleEdit:Dock(LEFT)
+    btnToggleEdit:DockMargin(8, 0, 0, 0)
+    btnToggleEdit:SetWide(180)
+
+    local function UpdateEditButton()
+        if LOOTSPAWN.EditMode then
+            btnToggleEdit:SetText("■ 退出编辑模式")
+            btnToggleEdit:SetTextColor(Color(255, 80, 80))
+        else
+            btnToggleEdit:SetText("▶ 进入编辑模式")
+            btnToggleEdit:SetTextColor(Color(80, 255, 80))
+        end
+    end
+    UpdateEditButton()
+
+    btnToggleEdit.DoClick = function()
+        if not LOOTSPAWN.EditMode and (LOOTSPAWN.EditGroup == "" or not LOOTSPAWN.EditGroup) then
+            Derma_Message("请先选择一个战利品组", "提示", "确定")
+            return
+        end
+
+        LOOTSPAWN.EditMode = not LOOTSPAWN.EditMode
+        UpdateEditButton()
+
+        net.Start("lootspawn_edit_mode")
+            net.WriteBool(LOOTSPAWN.EditMode)
+        net.SendToServer()
+
+        if LOOTSPAWN.EditMode then
+            -- 关闭面板进入编辑
+            if IsValid(LOOTSPAWN.MainFrame) then
+                LOOTSPAWN.MainFrame:Close()
+            end
+        end
+    end
+
+    -- 点位列表
     local spawnList = vgui.Create("DListView", panel)
     spawnList:Dock(FILL)
     spawnList:DockMargin(4, 4, 4, 4)
     spawnList:AddColumn("ID"):SetWidth(50)
     spawnList:AddColumn("位置"):SetWidth(300)
-    spawnList:AddColumn("绑定组"):SetWidth(150)
+    spawnList:AddColumn("绑定组"):SetWidth(200)
     spawnList:SetMultiSelect(false)
 
-    local btnDelete = vgui.Create("DButton", panel)
-    btnDelete:Dock(BOTTOM)
-    btnDelete:DockMargin(4, 4, 4, 4)
-    btnDelete:SetTall(30)
-    btnDelete:SetText("删除选中点位")
-    btnDelete:SetTextColor(Color(255, 80, 80))
+    local btnDeleteSpawn = vgui.Create("DButton", panel)
+    btnDeleteSpawn:Dock(BOTTOM)
+    btnDeleteSpawn:DockMargin(4, 4, 4, 4)
+    btnDeleteSpawn:SetTall(30)
+    btnDeleteSpawn:SetText("删除选中点位")
+    btnDeleteSpawn:SetTextColor(Color(255, 80, 80))
 
     local function RefreshSpawnList()
         spawnList:Clear()
@@ -371,9 +423,10 @@ function LOOTSPAWN.CreateSpawnPanel(parent)
         end
     end
 
-    btnDelete.DoClick = function()
-        local _, row = spawnList:GetSelectedLine()
-        if not row then return end
+    btnDeleteSpawn.DoClick = function()
+        local lineId = spawnList:GetSelectedLine()
+        if not lineId then return end
+        local row = spawnList:GetLine(lineId)
         local spawnId = tonumber(row:GetColumnText(1))
         if not spawnId then return end
 
@@ -382,7 +435,6 @@ function LOOTSPAWN.CreateSpawnPanel(parent)
                 net.Start("lootspawn_remove_spawn")
                     net.WriteUInt(spawnId, 32)
                 net.SendToServer()
-
                 for i, s in ipairs(LOOTSPAWN.ClientSpawns) do
                     if s.id == spawnId then
                         table.remove(LOOTSPAWN.ClientSpawns, i)
@@ -397,11 +449,11 @@ function LOOTSPAWN.CreateSpawnPanel(parent)
 
     RefreshSpawnList()
 
-    -- 监听数据更新
     panel.Think = function()
         if panel._lastCount ~= #LOOTSPAWN.ClientSpawns then
             panel._lastCount = #LOOTSPAWN.ClientSpawns
             RefreshSpawnList()
+            RefreshCombo()
         end
     end
 

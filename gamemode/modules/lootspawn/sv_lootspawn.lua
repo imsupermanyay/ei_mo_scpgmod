@@ -1,6 +1,6 @@
 --[[
     Loot Spawn System - Server
-    数据保存/加载、刷新逻辑、网络通信
+    数据保存/加载、刷新逻辑、网络通信、编辑模式
 ]]
 
 LOOTSPAWN.Groups = LOOTSPAWN.Groups or {}
@@ -19,7 +19,6 @@ function LOOTSPAWN.LoadGroups()
         LOOTSPAWN.Groups = {}
         return
     end
-
     local raw = file.Read(GROUP_PATH, "DATA")
     LOOTSPAWN.Groups = util.JSONToTable(raw) or {}
 end
@@ -35,7 +34,6 @@ function LOOTSPAWN.LoadSpawns()
         LOOTSPAWN.Spawns = {}
         return
     end
-
     local raw = file.Read(path, "DATA")
     LOOTSPAWN.Spawns = util.JSONToTable(raw) or {}
 end
@@ -69,16 +67,14 @@ function LOOTSPAWN.SpawnAll()
         ent:SetAngles(ang)
         ent:Spawn()
         ent:Activate()
-
         count = count + 1
     end
 
     MsgC(Color(0, 200, 100), "[LootSpawn] ", color_white, "已刷新 " .. count .. " 个物品 (地图: " .. game.GetMap() .. ")\n")
 end
 
--- ==================== 网络通信 ====================
+-- ==================== 同步 ====================
 
--- 同步所有数据给客户端
 function LOOTSPAWN.SyncToClient(ply)
     LOOTSPAWN.LoadGroups()
     LOOTSPAWN.LoadSpawns()
@@ -97,20 +93,25 @@ function LOOTSPAWN.SyncToClient(ply)
     net.Send(ply)
 end
 
--- 客户端请求数据
+local function SyncToAllAdmins()
+    for _, p in ipairs(player.GetAll()) do
+        if p:IsAdmin() then LOOTSPAWN.SyncToClient(p) end
+    end
+end
+
+-- ==================== 网络接收 ====================
+
 net.Receive("lootspawn_request_data", function(len, ply)
     if not IsValid(ply) or not ply:IsAdmin() then return end
     LOOTSPAWN.SyncToClient(ply)
 end)
 
--- 保存战利品组
 net.Receive("lootspawn_save_group", function(len, ply)
     if not IsValid(ply) or not ply:IsAdmin() then return end
 
     local dataLen = net.ReadUInt(32)
     local raw = net.ReadData(dataLen)
     local data = util.JSONToTable(raw)
-
     if not data or not data.classname then return end
 
     LOOTSPAWN.LoadGroups()
@@ -120,18 +121,11 @@ net.Receive("lootspawn_save_group", function(len, ply)
         items = data.items or {}
     }
     LOOTSPAWN.SaveGroups()
-
-    -- 同步给所有管理员
-    for _, p in ipairs(player.GetAll()) do
-        if p:IsAdmin() then
-            LOOTSPAWN.SyncToClient(p)
-        end
-    end
+    SyncToAllAdmins()
 
     MsgC(Color(0, 200, 100), "[LootSpawn] ", color_white, ply:Nick() .. " 保存了战利品组: " .. data.classname .. "\n")
 end)
 
--- 删除战利品组
 net.Receive("lootspawn_delete_group", function(len, ply)
     if not IsValid(ply) or not ply:IsAdmin() then return end
 
@@ -141,29 +135,20 @@ net.Receive("lootspawn_delete_group", function(len, ply)
     LOOTSPAWN.LoadGroups()
     LOOTSPAWN.Groups[classname] = nil
     LOOTSPAWN.SaveGroups()
-
-    for _, p in ipairs(player.GetAll()) do
-        if p:IsAdmin() then
-            LOOTSPAWN.SyncToClient(p)
-        end
-    end
+    SyncToAllAdmins()
 
     MsgC(Color(0, 200, 100), "[LootSpawn] ", color_white, ply:Nick() .. " 删除了战利品组: " .. classname .. "\n")
 end)
 
--- 添加刷新点
 net.Receive("lootspawn_add_spawn", function(len, ply)
     if not IsValid(ply) or not ply:IsAdmin() then return end
 
     local pos = net.ReadVector()
-    local ang = net.ReadAngle()
     local group = net.ReadString()
-
     if not group or group == "" then return end
 
     LOOTSPAWN.LoadSpawns()
 
-    -- 自增ID
     local maxId = 0
     for _, s in ipairs(LOOTSPAWN.Spawns) do
         if s.id and s.id > maxId then maxId = s.id end
@@ -172,22 +157,16 @@ net.Receive("lootspawn_add_spawn", function(len, ply)
     table.insert(LOOTSPAWN.Spawns, {
         id = maxId + 1,
         pos = { pos.x, pos.y, pos.z },
-        ang = { ang.p, ang.y, ang.r },
+        ang = { 0, 0, 0 },
         group = group
     })
 
     LOOTSPAWN.SaveSpawns()
-
-    for _, p in ipairs(player.GetAll()) do
-        if p:IsAdmin() then
-            LOOTSPAWN.SyncToClient(p)
-        end
-    end
+    SyncToAllAdmins()
 
     ply:ChatPrint("[LootSpawn] 已添加点位 #" .. (maxId + 1) .. " -> " .. group)
 end)
 
--- 删除刷新点
 net.Receive("lootspawn_remove_spawn", function(len, ply)
     if not IsValid(ply) or not ply:IsAdmin() then return end
 
@@ -203,20 +182,27 @@ net.Receive("lootspawn_remove_spawn", function(len, ply)
     end
 
     LOOTSPAWN.SaveSpawns()
-
-    for _, p in ipairs(player.GetAll()) do
-        if p:IsAdmin() then
-            LOOTSPAWN.SyncToClient(p)
-        end
-    end
+    SyncToAllAdmins()
 
     ply:ChatPrint("[LootSpawn] 已删除点位 #" .. spawnId)
+end)
+
+-- ==================== 编辑模式 ====================
+
+-- 服务端记录谁在编辑模式中（用于 trace 权限校验）
+LOOTSPAWN.EditingPlayers = LOOTSPAWN.EditingPlayers or {}
+
+net.Receive("lootspawn_edit_mode", function(len, ply)
+    if not IsValid(ply) or not ply:IsAdmin() then return end
+    local enabled = net.ReadBool()
+    LOOTSPAWN.EditingPlayers[ply:SteamID64()] = enabled or nil
 end)
 
 -- ==================== 聊天命令 ====================
 
 hook.Add("PlayerSay", "LootSpawn_ChatCommand", function(ply, text)
-    if string.lower(text) == "!lootspawn" or string.lower(text) == "/lootspawn" then
+    local lower = string.lower(text)
+    if lower == "!lootspawn" or lower == "/lootspawn" then
         if not ply:IsAdmin() then
             ply:ChatPrint("[LootSpawn] 你没有权限使用此命令")
             return ""
@@ -237,4 +223,8 @@ hook.Add("Initialize", "LootSpawn_Init", function()
     LOOTSPAWN.LoadGroups()
     LOOTSPAWN.LoadSpawns()
     MsgC(Color(0, 200, 100), "[LootSpawn] ", color_white, "系统已加载 - 组: " .. table.Count(LOOTSPAWN.Groups) .. " 点位: " .. #LOOTSPAWN.Spawns .. "\n")
+end)
+
+hook.Add("PlayerDisconnected", "LootSpawn_CleanupEditMode", function(ply)
+    LOOTSPAWN.EditingPlayers[ply:SteamID64()] = nil
 end)
